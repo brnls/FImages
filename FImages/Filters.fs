@@ -15,35 +15,133 @@ module Filters =
             x
             |>Array.map(fun y -> rgbXform y))
 
-    ///Mapping of one pixel and its immediate surrounding neighbors to one pixel
-    let private mapConvolveNeighborRgb neighborXForm (rgbArray:Images.rgb[][]) =
+    ///Mapping of one gridSize * gridSize square from source image to center pixel on new image. gridSize must be odd
+    let private mapConvolveNeighborRgb gridSize neighborXForm (rgbArray:Images.rgb[][]) =
+        if gridSize % 2 = 0 then failwith("gridSize must be odd")
         let filteredRgb = Array.init rgbArray.Length (fun y-> (Array.init rgbArray.[0].Length (fun x->{red = 0uy; green = 0uy; blue = 0uy;})))
-        for i in 1..rgbArray.Length - 2 do
-            for j in 1..rgbArray.[0].Length - 2 do
+        let gridPadding = gridSize/2
+        for i in gridPadding..(rgbArray.Length - gridPadding - 1) do
+            for j in gridPadding..(rgbArray.[0].Length - gridPadding - 1) do
                 neighborXForm i j filteredRgb rgbArray 
         filteredRgb
 
-    ///Blurs image by making colors averages of their nearest neighbor
+    let private mapLine smearXForm (rgbArray:Images.rgb[][]) = 
+        let filteredRgb = Array.init rgbArray.Length (fun y-> (Array.init rgbArray.[0].Length (fun x->{red = 0uy; green = 0uy; blue = 0uy;})))
+        for i in 0..rgbArray.Length - 21 do
+            for j in 0..rgbArray.[0].Length - 21 do
+                smearXForm i j filteredRgb rgbArray
+        filteredRgb
+
+    let smear rgbArray = 
+        let operation positionX positionY (destination:Images.rgb[][]) (source:Images.rgb[][]) =
+            let parentPixR = source.[positionX].[positionY].red
+            let parentPixG = source.[positionX].[positionY].green
+            let parentPixB = source.[positionX].[positionY].blue
+            for i in 0..19 do
+                destination.[positionX + i].[positionY].red <- byte (float parentPixR * (0.5 - 0.05 * (float i )) + float destination.[i].[positionY].red * ( float i * 0.05))
+                destination.[positionX + i].[positionY].green <- byte (float parentPixG * (0.5 - 0.05 * (float i)) + float destination.[i].[positionY].green * (float i * 0.05))
+                destination.[positionX + i].[positionY].blue <- byte (float parentPixB * (0.5 - 0.05 * (float i)) +  float destination.[i].[positionY].blue * (float i * 0.05))
+        rgbArray |> mapLine operation
+
+    ///Brings out edges. Best used on colors with simple pictures, low noise.
+    let edgeFinder rgbArray =
+        let operation centerX centerY (destination:Images.rgb[][]) (source:Images.rgb[][]) =
+            let mutable sumR = 0
+            let mutable sumG = 0
+            let mutable sumB = 0
+            let centerParity = abs((centerX - centerY) % 2)
+            for i in centerX-1..centerX+1 do
+                for j in centerY-1..centerY+1 do
+                    let parity = abs((i - j) % 2)
+                    if i = centerX && j = centerY then
+                        sumR <- sumR + 12 * int source.[i].[j].red
+                        sumG <- sumG + 12 * int source.[i].[j].green
+                        sumB <- sumB + 12 * int source.[i].[j].blue
+                    else if parity <> centerParity then
+                        sumR <- sumR - 2 * int source.[i].[j].red
+                        sumG <- sumG - 2 * int source.[i].[j].green
+                        sumB <- sumB - 2 * int source.[i].[j].blue
+                    else 
+                        sumR <- sumR - 1 * int source.[i].[j].red
+                        sumG <- sumG - 1 * int source.[i].[j].green
+                        sumB <- sumB - 1 * int source.[i].[j].blue
+
+            destination.[centerX].[centerY].red <- byte (cap (float sumR))
+            destination.[centerX].[centerY].green <- byte (cap (float sumG))
+            destination.[centerX].[centerY].blue <- byte (cap (float sumB))
+        rgbArray |> mapConvolveNeighborRgb 3 operation
+
+    ///Blur image. Increase scale for more blurring of image.
     let blur scale rgbArray =
+        let operation centerX centerY (destination:Images.rgb[][]) (source:Images.rgb[][]) =
+            let mutable sumR = 0
+            let mutable sumG = 0
+            let mutable sumB = 0
+            for i in centerX-2..centerX+2 do
+                for j in centerY-2..centerY+2 do
+                    sumR <- sumR + 1 * int source.[i].[j].red
+                    sumG <- sumG + 1 * int source.[i].[j].green
+                    sumB <- sumB + 1 * int source.[i].[j].blue
+
+            destination.[centerX].[centerY].red <- byte (sumR/25)
+            destination.[centerX].[centerY].green <- byte (sumG/25)
+            destination.[centerX].[centerY].blue <- byte (sumB/25)
+        let rec iterate count rgbVals = 
+            match count with
+            |0 -> rgbVals
+            |_ -> iterate (count - 1) (rgbVals |> mapConvolveNeighborRgb 5 operation)
+        iterate scale rgbArray
+
+    ///Blur image softly. Increase scale for more blurring of image.
+    let softBlur scale rgbArray : rgb[][] =
         let operation centerX centerY (destination:Images.rgb[][]) (source:Images.rgb[][]) =
             let mutable sumR = 0
             let mutable sumG = 0
             let mutable sumB = 0
             for i in centerX-1..centerX+1 do
                 for j in centerY-1..centerY+1 do
-                    sumR <- sumR + int source.[i].[j].red
-                    sumG <- sumG + int source.[i].[j].green
-                    sumB <- sumB + int source.[i].[j].blue
-            destination.[centerX].[centerY].red <- byte (sumR/9)
-            destination.[centerX].[centerY].green <- byte (sumG/9)
-            destination.[centerX].[centerY].blue <- byte (sumB/9)
+                    if i = centerX && j = centerY then
+                        sumR <- sumR + 3 * int source.[i].[j].red
+                        sumG <- sumG + 3 * int source.[i].[j].green
+                        sumB <- sumB + 3 * int source.[i].[j].blue
+                    else
+                        sumR <- sumR + 1 * int source.[i].[j].red
+                        sumG <- sumG + 1 * int source.[i].[j].green
+                        sumB <- sumB + 1 * int source.[i].[j].blue
+            destination.[centerX].[centerY].red <- byte (sumR/11)
+            destination.[centerX].[centerY].green <- byte (sumG/11)
+            destination.[centerX].[centerY].blue <- byte (sumB/11)
         let rec iterate count rgbVals = 
             match count with
             |0 -> rgbVals
-            |_ -> iterate (count - 1) (rgbVals |> mapConvolveNeighborRgb operation)
+            |_ -> iterate (count - 1) (rgbVals |> mapConvolveNeighborRgb 3 operation)
         iterate scale rgbArray
 
-        
+
+    let wind scale rgbArray : rgb[][] =
+        let operation centerX centerY (destination:Images.rgb[][]) (source:Images.rgb[][]) =
+            let mutable sumR = 0
+            let mutable sumG = 0
+            let mutable sumB = 0
+            for i in centerX-1..centerX+1 do
+                for j in centerY-1..centerY+1 do
+                    if i = centerX - 1 && j = centerY - 1 then
+                        sumR <- sumR + 3 * int source.[i].[j].red
+                        sumG <- sumG + 3 * int source.[i].[j].green
+                        sumB <- sumB + 3 * int source.[i].[j].blue
+                    else
+                        sumR <- sumR + 1 * int source.[i].[j].red
+                        sumG <- sumG + 1 * int source.[i].[j].green
+                        sumB <- sumB + 1 * int source.[i].[j].blue
+            destination.[centerX - 1].[centerY].red <- byte (sumR/11)
+            destination.[centerX - 1].[centerY].green <- byte (sumG/11)
+            destination.[centerX - 1].[centerY].blue <- byte (sumB/11)
+        let rec iterate count rgbVals = 
+            match count with
+            |0 -> rgbVals
+            |_ -> iterate (count - 1) (rgbVals |> mapConvolveNeighborRgb 3 operation)
+        iterate scale rgbArray
+
 
     ///Grayscale picture. Brightness variable, determined by scale parameter     
     let grayscale scale rgbArray =

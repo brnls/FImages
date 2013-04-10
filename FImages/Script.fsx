@@ -10,8 +10,7 @@ open System.Drawing
 open System.Drawing.Imaging
 open System.Runtime.InteropServices
 open Microsoft.FSharp.NativeInterop
-open Images.Filters
-open Images.Util
+open Images
 #time
 
 
@@ -19,10 +18,18 @@ let rand = new Random()
 let filepath = @"C:\Users\Brian\Desktop\" + "dog.JPG"
 let getImage func filepath=
     use newImage =
-        pictureToBmp(filepath)
-        |>Images.Util.filter func
-        |>bmpToPicture
+        Util.pictureToBmp(filepath)
+        //|>Util.filter (Filters.grayscale 2.0)
+        |>Util.filter func
+        |>Util.bmpToPicture
         
     newImage.Save(@"C:\Users\Brian\Desktop\" + "test2.jpg")
 
-getImage (blur 2) filepath
+getImage (Filters.smear) filepath
+
+
+//Util.pictureToBmp(filepath)
+//|>Util.filter (Filters.grayscale 2.0)
+//|>Util.filter (Filters.edge 1)
+//|>Util.bmpToPicture
+//|>(fun x-> x.Save(@"C:\Users\Brian\Desktop\" + "test2.jpg"))
