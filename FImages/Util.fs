@@ -80,6 +80,13 @@ module Util =
         bmp.UnlockBits(bmpData)
         data
 
+    let rgbArrayToPicture (rgb: rgb[][]) fileName =
+        let bitsPerPixel = 24
+        let bytesPerPixel = (bitsPerPixel + 7) / 8;
+        let stride = 4 * ((rgb.[0].Length * bytesPerPixel + 3) / 4)
+        let bmp = new Bitmap(rgb.[0].Length, rgb.Length, stride, PixelFormat.Format24bppRgb, intPtrToByteArray (rgbToBytes stride rgb))
+        bmp.Save(fileName)
+
 
     let filter xform bmp = 
         bytesToRgb bmp
